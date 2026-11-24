@@ -1,0 +1,10 @@
+.env
+.venv/
+models/
+logs/
+bench/
+memory/daily/
+__pycache__/
+.pytest_cache/
+handoffs/
+config.local.toml
