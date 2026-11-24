@@ -1,0 +1,17 @@
+numpy>=2.0
+sounddevice>=0.4.7
+moonshine-voice>=0.1.6
+faster-whisper>=1.0
+kokoro-onnx>=0.6
+google-genai>=1.50
+nvidia-cublas-cu12; sys_platform == "win32"
+nvidia-cudnn-cu12==9.*; sys_platform == "win32"
+psutil>=5.9
+uiautomation>=2.0.29; sys_platform == "win32"
+winocr>=0.0.15; sys_platform == "win32"
+pystray>=0.19
+pillow>=10
+pytest>=8
+pynput>=1.7.6; sys_platform == "darwin"
+# setup.ps1 swaps onnxruntime for onnxruntime-gpu 1.22-1.25 (CUDA 12) afterwards. kokoro-onnx's [gpu] extra
+# only matches platform_machine == x86_64, which Windows reports as AMD64, so it never installs there.

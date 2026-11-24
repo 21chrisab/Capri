@@ -1,0 +1,84 @@
+# Capri v2 config. Edit and restart.
+
+[hotkey]
+# Hold to talk. ["alt"] = either Alt key on its own. Alt+Tab, Alt+F4 etc. still work normally:
+# pressing any other key while holding Alt cancels. Other options: ["ralt"] (right Alt only),
+# ["ctrl", "alt", "space"], ["f13"]. Names: ctrl, alt, shift, win, lalt, ralt, space, f13, a-z, 0-9.
+keys = ["alt"]
+
+[listen]
+# "both" = hotkey + say "Capri" (hands-free). "hotkey" = hotkey only.
+mode = "both"
+wake_words = ["capri"]
+idle_timeout_s = 10        # after waking, she keeps listening until you've been quiet this long
+end_silence_s = 0.7        # how long a pause ends a sentence (raise to 1.0 if she cuts you off)
+vad_threshold = 0.5        # speech detection sensitivity (lower = picks up quieter/farther voices)
+
+[audio]
+sample_rate = 16000
+input_device = ""      # "" = Windows default mic. Or part of the device name, e.g. "AM6".
+output_device = ""     # "" = Windows default speakers.
+min_seconds = 0.25     # ignore taps shorter than this
+
+[stt]
+engine = "moonshine"               # "moonshine" or "faster-whisper" (compare with: capri.bat bench-stt)
+whisper_model = "distil-small.en"
+whisper_device = "cuda"            # falls back to cpu automatically
+moonshine_arch = "medium-streaming"
+
+[voice]
+voice = "af_bella"
+speed = 1.05
+model_dir = "models"               # kokoro-v1.0.onnx + voices-v1.0.bin go here (setup.ps1 downloads them)
+provider = "auto"                  # "auto" or "coreml" (macOS)
+acks = ["Got it.", "Coming right up.", "On it.", "Yep.", "Done.", "Anytime.", "Yeah?"]
+
+[memory]
+# Optional shared memory folder (e.g. in Google Drive). "" = local memory/ folder.
+dir = ""
+
+[handoff]
+# Big jobs go to Claude (Claude Code CLI, your Claude Pro plan). Results land in handoffs/<job>/RESULT.md
+max_turns = 40
+timeout_min = 30
+max_parallel = 2
+model = ""                 # "" = your Claude Code default. Or "sonnet", "opus", "haiku".
+
+[life]
+# Your life OS folder (tasks, projects, dashboard), synced by Google Drive for desktop.
+# "" = look in the usual spots (G:\My Drive\life, then H:, I:, J:). Or set it, e.g. dir = 'G:\My Drive\life'
+dir = ""
+
+[web]
+# The life dashboard with a Capri sidebar, served at http://127.0.0.1:8765 (only this PC can reach it).
+enabled = true
+port = 8765
+
+[reflex]
+# Instant commands understand more than exact phrases: commands buried in chatter, follow-ups
+# ("higher", "a hundred", "again"), and fuzzier wording picked by a small local model that can only
+# choose from a fixed list of actions (it never writes a reply). Needs Ollama running; "" turns it off.
+local_model = "qwen3.5:4b"
+timeout_s = 1.5
+
+[overlay]
+enabled = true            # small Listening / Thinking / Speaking pill above the taskbar
+
+# Budgets in milliseconds, measured from when you stop talking (hotkey release).
+# p50 per turn kind must stay under these. Check with: capri.bat budget
+[budget.instant]          # commands with no AI: "open spotify", "skip", "turn it up"
+stt_final = 400
+first_audio = 450          # the "Got it." ack starts playing
+action_done = 600
+
+[budget.brain]            # Gemini answers and multi-step tasks
+stt_final = 400
+llm_first_token = 800
+first_audio = 1200
+
+[budget.computer]         # turns where she used observe/click/type (reported, not enforced yet)
+first_audio = 600          # the "On it." ack
+
+[budget.echo]             # only when the brain is off (no API key)
+stt_final = 400
+first_audio = 900
