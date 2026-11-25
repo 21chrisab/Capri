@@ -43,6 +43,9 @@ max_turns = 40
 timeout_min = 30
 max_parallel = 2
 model = ""                 # "" = your Claude Code default. Or "sonnet", "opus", "haiku".
+default_agent = "claude"   # who gets a job when you don't name one: "claude", "codex" or "gemini"
+codex_model = ""           # "" = Codex CLI default
+gemini_model = ""          # "" = Gemini CLI default
 
 [life]
 # Your life OS folder (tasks, projects, dashboard), synced by Google Drive for desktop.

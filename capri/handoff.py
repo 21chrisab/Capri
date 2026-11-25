@@ -9,6 +9,11 @@
 Runs on your Claude Pro plan through the Claude Code CLI you're logged into. No API key.
 Safety: Claude works inside the job folder only (acceptEdits mode = it can create and edit
 files there, nothing else), can search and read the web, and can't run shell commands.
+
+Codex (ChatGPT plan) and Gemini CLI (Google AI plan) can take jobs too ("have Codex ..."), held to
+the same idea: edits stay in the job folder, no free shell. Codex runs in its workspace-write sandbox
+(network off, writes only in the job folder). Gemini runs in auto_edit mode, where shell commands need
+approval, and headless runs deny anything that needs approval.
 """
 from __future__ import annotations
 
@@ -34,6 +39,8 @@ The user is not watching. Don't ask questions: make sensible assumptions and not
 Put your complete answer in RESULT.md in the current folder (markdown, well organized; files you create go here too).
 Your FINAL message must be only a spoken summary for Capri to read aloud: 1-2 short casual sentences, plain text,
 no markdown, no file paths, no lists."""
+
+AGENTS = {"claude": "Claude", "codex": "Codex", "gemini": "Gemini"}
 
 
 def slug(text: str, n: int = 40) -> str:
@@ -64,6 +71,34 @@ def build_command(exe: str, max_turns: int, model: str | None = None) -> list[st
     if model:
         cmd += ["--model", model]
     return cmd
+
+
+def find_agent(agent: str) -> str | None:
+    if agent == "claude":
+        return find_claude()
+    exe = shutil.which(agent)
+    if exe:
+        return exe
+    p = Path(os.environ.get("APPDATA", "")) / "npm" / f"{agent}.cmd"
+    return str(p) if p.exists() else None
+
+
+def build_agent_command(agent: str, exe: str, max_turns: int, model: str | None = None) -> list[str]:
+    if agent == "codex":
+        cmd = [exe, "exec", "--sandbox", "workspace-write",   # writes only in the job folder, network off
+               "--skip-git-repo-check", RUN_PROMPT]           # job folders aren't git repos
+    elif agent == "gemini":
+        cmd = [exe, "-p", RUN_PROMPT,
+               "--approval-mode", "auto_edit"]                # edits ok; shell needs approval = denied headless
+    else:
+        return build_command(exe, max_turns, model)
+    return cmd + (["-m", model] if model else [])
+
+
+def last_paragraph(stdout: str, n: int = 300) -> str:
+    """Codex and Gemini print their final message last; that's the spoken summary."""
+    paras = [p.strip() for p in re.split(r"\n\s*\n", stdout.strip()) if p.strip()]
+    return " ".join(paras[-1].split())[:n] if paras else ""
 
 
 def parse_output(stdout: str) -> dict:
@@ -104,6 +139,7 @@ class Job:
     title: str
     task: str
     folder: Path
+    agent: str = "claude"
     status: str = "running"           # running / done / failed
     started: float = field(default_factory=time.time)
     finished: float | None = None
@@ -122,8 +158,12 @@ class Job:
 class Handoff:
     def __init__(self, cfg: dict, on_done: Callable[[Job], None] | None = None,
                  runner: Callable[..., subprocess.CompletedProcess] | None = None,
-                 jobs_dir: Path = JOBS) -> None:
+                 jobs_dir: Path = JOBS, memory=None) -> None:
         c = cfg.get("handoff", {})
+        self.default_agent = str(c.get("default_agent", "claude")).lower() or "claude"
+        self.models = {"claude": c.get("model") or None, "codex": c.get("codex_model") or None,
+                       "gemini": c.get("gemini_model") or None}
+        self.memory = memory
         self.max_turns = int(c.get("max_turns", 40))
         self.timeout = int(c.get("timeout_min", 30)) * 60
         self.model = c.get("model") or None
@@ -136,37 +176,57 @@ class Handoff:
 
     @property
     def available(self) -> bool:
-        return self.runner is not subprocess.run or find_claude() is not None
+        return self.runner is not subprocess.run or any(find_agent(a) for a in AGENTS)
 
     # ---------- tools Capri calls ----------
-    def start(self, task: str, title: str | None = None) -> str:
-        exe = find_claude() if self.runner is subprocess.run else "claude"
+    def start(self, task: str, title: str | None = None, agent: str | None = None) -> str:
+        agent = (agent or self.default_agent).strip().lower()
+        if agent not in AGENTS:
+            return f"Unknown agent {agent!r}. Use claude, codex or gemini."
+        name = AGENTS[agent]
+        exe = find_agent(agent) if self.runner is subprocess.run else agent
         if exe is None:
-            return ("Claude Code isn't installed. Tell the user to run this in PowerShell: "
-                    "irm https://claude.ai/install.ps1 | iex   then run `claude` once to log in.")
+            if agent == "claude":
+                return ("Claude Code isn't installed. Tell the user to run this in PowerShell: "
+                        "irm https://claude.ai/install.ps1 | iex   then run `claude` once to log in.")
+            pkg = {"codex": "@openai/codex", "gemini": "@google/gemini-cli"}[agent]
+            return f"{name} CLI isn't installed. Tell the user to run: npm i -g {pkg}   then run `{agent}` once to log in."
         running = [j for j in self.jobs if j.status == "running"]
         if len(running) >= self.max_parallel:
-            return f"Claude is already busy with {len(running)} jobs: {', '.join(j.title for j in running)}."
+            return f"Agents are already busy with {len(running)} jobs: {', '.join(j.title for j in running)}."
         title = (title or task).strip().split("\n")[0][:60]
         folder = self.jobs_dir / f"{dt.datetime.now():%Y%m%d-%H%M%S}-{slug(title)}"
         folder.mkdir(parents=True, exist_ok=True)
-        (folder / "TASK.md").write_text(f"# {title}\n\n{task.strip()}\n", encoding="utf-8")
+        (folder / "TASK.md").write_text(self._task_md(agent, title, task), encoding="utf-8")
         with self._lock:
-            job = Job(id=len(self.jobs) + 1, title=title, task=task, folder=folder)
+            job = Job(id=len(self.jobs) + 1, title=title, task=task, folder=folder, agent=agent)
             self.jobs.append(job)
         threading.Thread(target=self._run, args=(job, exe), name=f"handoff-{job.id}", daemon=True).start()
-        return f"Started Claude job #{job.id}: {title}. It runs in the background; you'll hear when it's done."
+        return f"Started {name} job #{job.id}: {title}. It runs in the background; you'll hear when it's done."
+
+    def _task_md(self, agent: str, title: str, task: str) -> str:
+        parts = [f"# {title}\n\n{task.strip()}\n"]
+        if self.memory is not None:
+            mode, rules = self.memory.active_mode()
+            if mode != "general" and rules:
+                parts.append(f"## Workflow mode: {mode}\n{rules}\n")
+            bullets = [l for l in self.memory.recent_lessons().splitlines() if l.startswith("- ")]
+            if bullets:
+                parts.append("## Lessons from the user (follow these)\n" + "\n".join(bullets) + "\n")
+        if agent != "claude":            # Claude gets these rules via --append-system-prompt
+            parts.append("## How to finish\n" + SYSTEM + "\n")
+        return "\n".join(parts)
 
     def status(self) -> str:
         if not self.jobs:
-            return "No Claude jobs yet."
-        return "\n".join(f"#{j.id} {j.title}: {j.status} ({j.age()})" + (f". {j.summary}" if j.summary else "")
+            return "No agent jobs yet."
+        return "\n".join(f"#{j.id} {j.title}" + ("" if j.agent == "claude" else f" ({AGENTS[j.agent]})") + f": {j.status} ({j.age()})" + (f". {j.summary}" if j.summary else "")
                          for j in self.jobs[-5:])
 
     def result(self, which: str = "latest") -> str:
         job = self._pick(which)
         if job is None:
-            return "No finished Claude job found."
+            return "No finished agent job found."
         if job.result_path.exists():
             return f"#{job.id} {job.title}:\n" + job.result_path.read_text(encoding="utf-8")[:3500]
         return f"#{job.id} {job.title}: {job.summary or 'no RESULT.md written'}"
@@ -174,7 +234,7 @@ class Handoff:
     def open(self, which: str = "latest") -> str:
         job = self._pick(which)
         if job is None:
-            return "No finished Claude job found."
+            return "No finished agent job found."
         target = job.result_path if job.result_path.exists() else job.folder
         os.startfile(str(target))  # type: ignore[attr-defined]  # Windows: opens in the default app
         return f"Opened {target.name} for job #{job.id}."
@@ -190,25 +250,34 @@ class Handoff:
         return done[-1]
 
     def _run(self, job: Job, exe: str) -> None:
-        cmd = build_command(exe, self.max_turns, self.model)
+        name = AGENTS[job.agent]
+        cmd = build_agent_command(job.agent, exe, self.max_turns, self.models.get(job.agent))
         try:
             proc = self.runner(cmd, cwd=str(job.folder), capture_output=True, text=True, encoding="utf-8",
                                errors="replace", timeout=self.timeout, stdin=subprocess.DEVNULL,
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            (job.folder / "claude-output.json").write_text(proc.stdout or "", encoding="utf-8")
+            out_name = "claude-output.json" if job.agent == "claude" else f"{job.agent}-output.txt"
+            (job.folder / out_name).write_text(proc.stdout or "", encoding="utf-8")
             if proc.stderr:
-                (job.folder / "claude-stderr.txt").write_text(proc.stderr, encoding="utf-8")
-            out = parse_output(proc.stdout or "")
-            job.session_id = out["session_id"]
-            if out["ok"]:
-                job.status, job.summary = "done", out["summary"] or "Finished. The details are in RESULT.md."
+                (job.folder / f"{job.agent}-stderr.txt").write_text(proc.stderr, encoding="utf-8")
+            if job.agent == "claude":
+                out = parse_output(proc.stdout or "")
+                job.session_id = out["session_id"]
+                ok, summary = out["ok"], out["summary"]
+            else:
+                ok, summary = proc.returncode == 0, last_paragraph(proc.stdout or "")
+            if ok:
+                job.status = "done"
+                job.summary = summary or ("Finished. The details are in RESULT.md." if job.result_path.exists()
+                                          else "Finished, but it didn't write a RESULT.md.")
             else:
                 job.status = "failed"
-                job.summary = explain_error(out["summary"] or (proc.stderr or "").strip()[-200:])
+                err = summary or (proc.stderr or "").strip()[-200:]
+                job.summary = explain_error(err) if job.agent == "claude" else f"{name} hit a problem: {err[:200] or 'unknown error'}"
         except subprocess.TimeoutExpired:
-            job.status, job.summary = "failed", f"Claude ran past the {self.timeout // 60} minute limit."
+            job.status, job.summary = "failed", f"{name} ran past the {self.timeout // 60} minute limit."
         except Exception as e:
-            job.status, job.summary = "failed", f"Couldn't run Claude: {type(e).__name__}: {e}"
+            job.status, job.summary = "failed", f"Couldn't run {name}: {type(e).__name__}: {e}"
         job.finished = time.time()
         if self.on_done:
             try:

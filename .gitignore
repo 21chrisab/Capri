@@ -3,7 +3,8 @@
 models/
 logs/
 bench/
-memory/daily/
+# memory/ is what Capri knows about you (USER.md, people, lessons). Keep it out of this public repo.
+memory/
 __pycache__/
 .pytest_cache/
 handoffs/

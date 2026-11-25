@@ -68,15 +68,16 @@ DECLS: list[dict] = [
          "question": {"type": "string"}, "window": {"type": "string"}}, "required": ["question"]}},
     {"name": "list_windows", "description": "List open windows and which monitor each is on.",
      "parameters_json_schema": {"type": "object", "properties": {}}},
-    # --- handoff to Claude ---
+    # --- handoff to a background agent (Claude / Codex / Gemini) ---
     {"name": "handoff", "description": (
-        "Hand a big task to Claude (runs in the background, the user can keep talking to you). Use when the user "
-        "asks for Claude, or for work too big for voice: writing code or documents, deep research, comparisons, "
-        "plans. task must be complete and self-contained: include every relevant detail from the conversation. "
-        "title is 3-6 words."),
+        "Hand a big task to a background agent (the user can keep talking to you). Use when the user asks for "
+        "Claude, Codex or Gemini, or for work too big for voice: writing code or documents, deep research, "
+        "comparisons, plans. task must be complete and self-contained: include every relevant detail from the "
+        "conversation. title is 3-6 words. agent: only set it when the user names one; otherwise leave it out."),
      "parameters_json_schema": {"type": "object", "properties": {
-         "task": {"type": "string"}, "title": {"type": "string"}}, "required": ["task"]}},
-    {"name": "handoff_status", "description": "Check on Claude's background jobs.",
+         "task": {"type": "string"}, "title": {"type": "string"},
+         "agent": {"type": "string", "enum": ["claude", "codex", "gemini"]}}, "required": ["task"]}},
+    {"name": "handoff_status", "description": "Check on the background agents' jobs.",
      "parameters_json_schema": {"type": "object", "properties": {}}},
     {"name": "handoff_result", "description": "Read a finished Claude job's full result to answer questions about it.",
      "parameters_json_schema": {"type": "object", "properties": {"which": {"type": "string"}}}},
@@ -97,6 +98,14 @@ DECLS: list[dict] = [
      "parameters_json_schema": {"type": "object", "properties": {"task": {"type": "string"}}, "required": ["task"]}},
     {"name": "life_dashboard", "description": "Rebuild and open the user's life dashboard in the browser.",
      "parameters_json_schema": {"type": "object", "properties": {}}},
+    {"name": "set_mode", "description": (
+        "Switch the workflow mode when the user asks: general, coding, assignments or content_studio. "
+        "The mode's rules apply to you and to handed-off agents."),
+     "parameters_json_schema": {"type": "object", "properties": {"mode": {"type": "string"}}, "required": ["mode"]}},
+    {"name": "learn_lesson", "description": (
+        "Save a lasting correction or workflow rule the user gives you (\"don't do X\", \"always Y\") to "
+        "LESSONS.md. One short imperative sentence. Not for facts about the user: use remember for those."),
+     "parameters_json_schema": {"type": "object", "properties": {"lesson": {"type": "string"}}, "required": ["lesson"]}},
     {"name": "forget", "description": "Remove lines containing text from a memory file when the user asks to forget it.",
      "parameters_json_schema": {"type": "object", "properties": {
          "path": {"type": "string"}, "text": {"type": "string"}}, "required": ["path", "text"]}},
@@ -141,13 +150,18 @@ class ToolBox:
     # --- handoff ---
     def _ho(self):
         if self.handoff is None:
-            raise RuntimeError("handoff to Claude isn't set up")
+            raise RuntimeError("handoff to agents isn't set up")
         return self.handoff
 
-    def t_handoff(self, task: str, title: str | None = None) -> str: return self._ho().start(task, title)
+    def t_handoff(self, task: str, title: str | None = None, agent: str | None = None) -> str:
+        return self._ho().start(task, title, agent=agent)
     def t_handoff_status(self) -> str: return self._ho().status()
     def t_handoff_result(self, which: str = "latest") -> str: return self._ho().result(which)
     def t_handoff_open(self, which: str = "latest") -> str: return self._ho().open(which)
+
+    # --- workflow mode & lessons ---
+    def t_set_mode(self, mode: str) -> str: return self.memory.set_mode(mode)
+    def t_learn_lesson(self, lesson: str) -> str: return self.memory.learn_lesson(lesson)
 
     # --- life OS ---
     def t_life_today(self) -> str: return self.life.today_text()

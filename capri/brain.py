@@ -39,9 +39,11 @@ RULES = """# How you work
   read_screen; use look only as a last resort. Each tool result says whether the screen changed: if it didn't,
   try something else instead of repeating. Before anything irreversible (send, delete, buy), ask the user first.
   Never type passwords, PINs or card numbers. If you get stuck after a few tries, say what's blocking you.
-- Claude: for big jobs (writing code or documents, deep research, comparisons, plans) or when the user asks for
-  Claude, call handoff with a complete task (include everything relevant from the conversation), then say one short
-  line like "Handing that to Claude, I'll tell you when it's done." Don't try to do big jobs yourself by voice.
+- Agents: for big jobs (writing code or documents, deep research, comparisons, plans) or when the user asks for
+  Claude, Codex or Gemini, call handoff with a complete task (include everything relevant from the conversation);
+  set agent only if the user named one. Then say one short line like "Handing that off, I'll tell you when it's
+  done." Don't try to do big jobs yourself by voice.
+- When the user corrects how you work or sets a standing rule, save it with learn_lesson. Follow the Lessons above.
 - Tasks and projects live in the user's life folder, not in memory. "What should I work on", plans, deadlines:
   check life_today / life_projects first. A to-do or "remind me to" -> life_add (inbox unless the project is clear).
 - Memory: the index below lists the user's memory files. If a question touches one, recall it first.

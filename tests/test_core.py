@@ -162,7 +162,26 @@ def test_actions_with_fake_windows(monkeypatch):
     assert a.execute(parse("resume"), t()) and calls == []  # already playing: don't toggle it off
     assert a.execute(parse("close discord"), t()) and calls[-1] == ("close", 42)
     assert a.execute(parse("switch to the weather"), t()) is False  # not a window -> brain
+    assert a.execute(parse("switch to coding mode"), t()) is False  # no memory wired -> brain handles it
     assert a.execute(parse("open photoshop"), t()) and heard[-1] == "I couldn't find photoshop."
     timer = t()
     a.execute(parse("skip"), timer)
     assert {"action_done", "first_audio"} <= set(timer.marks)
+
+
+def test_mode_switch_by_voice(tmp_path):
+    from capri.actions import Actions
+    from capri.memory import Memory
+    from capri.router import parse
+    from capri.timing import TurnTimer
+
+    heard = []
+
+    class V:
+        def ack(self, text, started=None): heard.append(text)
+        def say(self, text, started=None): heard.append(text)
+
+    mem = Memory(tmp_path / "mem", tmp_path / "w.jsonl")
+    a = Actions(V(), None, memory=mem)
+    assert a.execute(parse("switch to assignments mode"), TurnTimer("instant", log=tmp_path / "t.jsonl"))
+    assert heard[-1] == "Switched to assignments mode." and mem.active_mode()[0] == "assignments"

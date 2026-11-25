@@ -33,8 +33,10 @@ def memory_dir(cfg: dict) -> Path:
     if not raw:
         return MEM
     return Path(raw).expanduser()
-PINNED = ("SOUL.md", "USER.md")
+PINNED = ("SOUL.md", "USER.md", "LESSONS.md")
 READ_ONLY = {"SOUL.md"}
+MODES = ("general", "coding", "assignments", "content_studio")
+LESSONS_IN_PROMPT = 15        # only the newest lessons ride along on every turn (keeps voice turns fast)
 SAFE = re.compile(r"^[a-z0-9][a-z0-9 _\-/]*\.md$")
 
 DEFAULT_SOUL = """# Capri
@@ -44,6 +46,20 @@ casual, a little slang, short. Never robotic, never "Certainly! I'd be happy to 
 - For tasks, don't narrate. An ack plays automatically; only speak if something went wrong or there's an answer to give.
 - If you're not sure what they meant, ask one quick question.
 """
+
+DEFAULT_LESSONS = """# Lessons
+- Corrections and workflow rules learned from the user. Newest last. Capri and handed-off agents both read this.
+"""
+
+DEFAULT_MODES = {
+    "general": "# Mode: General\n- Everyday help. No special rules.\n",
+    "coding": ("# Mode: Coding\n- Prefer handing real code work to an agent with a complete task.\n"
+               "- Keep spoken answers short; put code in files, not speech.\n"),
+    "assignments": ("# Mode: Assignments\n- School work: check life_today and deadlines first.\n"
+                    "- Help the user learn and draft; cite sources for research.\n"),
+    "content_studio": ("# Mode: Content Studio\n- Short AI-generated videos: scripting, editing, export.\n"
+                       "- Keep costs low; suggest the cheapest tool that works.\n"),
+}
 
 DEFAULT_USER = """# User
 - Uses a Windows PC with two monitors and a fifine AM6 mic.
@@ -56,12 +72,18 @@ class Memory:
         self.root = root
         self.write_log = write_log
         self.root.mkdir(parents=True, exist_ok=True)
-        for sub in ("people", "topics", "projects", "daily"):
+        for sub in ("people", "topics", "projects", "daily", "modes"):
             (self.root / sub).mkdir(exist_ok=True)
         if not (self.root / "SOUL.md").exists():
             (self.root / "SOUL.md").write_text(DEFAULT_SOUL, encoding="utf-8")
         if not (self.root / "USER.md").exists():
             (self.root / "USER.md").write_text(DEFAULT_USER, encoding="utf-8")
+        if not (self.root / "LESSONS.md").exists():
+            (self.root / "LESSONS.md").write_text(DEFAULT_LESSONS, encoding="utf-8")
+        for name, body in DEFAULT_MODES.items():
+            f = self.root / "modes" / f"{name}.md"
+            if not f.exists():
+                f.write_text(body, encoding="utf-8")
 
     # ---------- paths ----------
     def _path(self, rel: str) -> Path:
@@ -82,8 +104,61 @@ class Memory:
 
     # ---------- prompt ----------
     def pinned(self) -> str:
-        return "\n\n".join((self.root / n).read_text(encoding="utf-8").strip()
-                           for n in PINNED if (self.root / n).exists())
+        parts = []
+        for n in PINNED:
+            p = self.root / n
+            if not p.exists():
+                continue
+            text = p.read_text(encoding="utf-8").strip()
+            if n == "LESSONS.md":
+                text = self.recent_lessons()
+            if text:
+                parts.append(text)
+        mode, rules = self.active_mode()
+        if mode != "general" and rules:
+            parts.append(f"# Active workflow mode: {mode}\n{rules}")
+        return "\n\n".join(parts)
+
+    # ---------- lessons & modes ----------
+    def recent_lessons(self, n: int = LESSONS_IN_PROMPT) -> str:
+        """LESSONS.md header plus only the newest n bullets, so the file can grow without slowing turns."""
+        p = self.root / "LESSONS.md"
+        if not p.exists():
+            return ""
+        lines = p.read_text(encoding="utf-8").splitlines()
+        head = [l for l in lines if l.startswith("#")][:1]
+        bullets = [l for l in lines if l.lstrip().startswith("- ")]
+        return "\n".join(head + bullets[-n:]).strip()
+
+    def learn_lesson(self, lesson: str) -> str:
+        return self.remember("LESSONS.md", lesson)
+
+    @staticmethod
+    def _mode_name(mode: str) -> str:
+        m = re.sub(r"[^a-z0-9_]", "", mode.strip().lower().replace(" ", "_").replace("-", "_"))
+        return m.removesuffix("_mode") or "general"
+
+    def set_mode(self, mode: str) -> str:
+        m = self._mode_name(mode)
+        f = self.root / "modes" / f"{m}.md"
+        if m not in MODES and not f.exists():
+            return f"No mode called {m}. Modes: {', '.join(self.modes())}."
+        if not f.exists():
+            f.write_text(DEFAULT_MODES.get(m, f"# Mode: {m}\n"), encoding="utf-8")
+        (self.root / ".active_mode").write_text(m, encoding="utf-8")
+        return f"Switched to {m.replace('_', ' ')} mode."
+
+    def active_mode(self) -> tuple[str, str]:
+        flag = self.root / ".active_mode"
+        m = self._mode_name(flag.read_text(encoding="utf-8")) if flag.exists() else "general"
+        f = self.root / "modes" / f"{m}.md"
+        if not f.exists():
+            return "general", ""
+        lines = [l for l in f.read_text(encoding="utf-8").splitlines() if l.strip() and not l.startswith("#")]
+        return m, "\n".join(lines)
+
+    def modes(self) -> list[str]:
+        return sorted(p.stem for p in (self.root / "modes").glob("*.md"))
 
     def files(self) -> list[Path]:
         out = [p for p in self.root.rglob("*.md")

@@ -95,11 +95,12 @@ def web_search_url(query: str) -> str:
 
 
 class Actions:
-    def __init__(self, voice: "Voice", apps: AppIndex, life=None, hands=None) -> None:
+    def __init__(self, voice: "Voice", apps: AppIndex, life=None, hands=None, memory=None) -> None:
         self.voice = voice
         self.apps = apps
         self.life = life          # capri.life.Life, or None when the life folder isn't set up
         self.hands = hands
+        self.memory = memory      # capri.memory.Memory, for workflow-mode switches
 
     def execute(self, intent: Intent, timer: "TurnTimer", quiet: bool = False) -> bool:
         started = threading.Event()
@@ -116,6 +117,12 @@ class Actions:
         n, arg = intent.name, intent.arg
         if n == "stop":
             self.voice.stop()
+            timer.mark("action_done")
+            return True
+        if n == "set_mode":
+            if self.memory is None:
+                return False
+            say(self.memory.set_mode(str(arg)))
             timer.mark("action_done")
             return True
         if n.startswith("life_"):

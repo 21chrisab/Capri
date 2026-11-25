@@ -61,3 +61,34 @@ def test_index_is_capped(mem):
         mem.remember(f"topics/t{i:02d}", "x" * 60)
     idx = mem.index(max_chars=1000)
     assert len(idx) < 1150 and "older files" in idx
+
+
+def test_lessons_pinned_but_capped(mem):
+    assert (mem.root / "LESSONS.md").exists()
+    for i in range(30):
+        mem.learn_lesson(f"rule number {i}")
+    head = mem.pinned()
+    assert "rule number 29" in head and "rule number 15" in head
+    assert "rule number 14" not in head          # only the newest 15 ride along each turn
+    assert "rule number 0" in mem.recall("LESSONS.md")   # the file keeps everything
+    assert "LESSONS.md" not in mem.index()
+
+
+def test_modes(mem):
+    assert set(mem.modes()) >= {"general", "coding", "assignments", "content_studio"}
+    assert mem.active_mode()[0] == "general"
+    assert "Active workflow mode" not in mem.pinned()
+    assert mem.set_mode("Content Studio") == "Switched to content studio mode."
+    mode, rules = mem.active_mode()
+    assert mode == "content_studio" and "videos" in rules
+    assert "Active workflow mode: content_studio" in mem.pinned()
+    assert mem.set_mode("coding mode") == "Switched to coding mode."
+    assert mem.set_mode("../../etc").startswith("No mode called")
+    assert mem.active_mode()[0] == "coding"
+
+
+def test_custom_mode_and_missing_file(mem):
+    (mem.root / "modes" / "research.md").write_text("# Mode: Research\n- cite everything\n")
+    assert mem.set_mode("research").startswith("Switched")
+    (mem.root / "modes" / "research.md").unlink()
+    assert mem.active_mode() == ("general", "")   # a deleted mode falls back quietly

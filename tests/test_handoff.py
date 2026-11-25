@@ -87,3 +87,54 @@ def test_parallel_limit(tmp_path):
     h.start("one")
     assert "already busy" in h.start("two")
     gate.set()
+
+
+def test_codex_and_gemini_commands_stay_sandboxed():
+    from capri.handoff import build_agent_command
+    codex = build_agent_command("codex", "codex", 40, "gpt-5")
+    assert codex[:2] == ["codex", "exec"] and codex[codex.index("--sandbox") + 1] == "workspace-write"
+    assert "--skip-git-repo-check" in codex and codex[-2:] == ["-m", "gpt-5"]
+    gem = build_agent_command("gemini", "gemini", 40)
+    assert gem[gem.index("--approval-mode") + 1] == "auto_edit" and "-m" not in gem
+    for cmd in (codex, gem):                       # never the "approve everything" switches
+        assert not {"--yolo", "-y", "--full-auto", "danger-full-access", "--dangerously-bypass-approvals-and-sandbox"} & set(cmd)
+    assert build_agent_command("claude", "claude", 40) == build_command("claude", 40)
+
+
+class FakeCLI:
+    def __init__(self, stdout, code=0):
+        self.stdout, self.code, self.calls = stdout, code, []
+
+    def __call__(self, cmd, cwd, **kw):
+        self.calls.append((cmd, cwd))
+        return subprocess.CompletedProcess(cmd, self.code, stdout=self.stdout, stderr="boom" if self.code else "")
+
+
+def test_codex_job_and_task_context(tmp_path):
+    from capri.memory import Memory
+    mem = Memory(tmp_path / "mem", tmp_path / "w.jsonl")
+    mem.set_mode("coding")
+    mem.learn_lesson("Never commit to main directly")
+    done = []
+    run = FakeCLI("working...\n\nAdded the parser and three tests.")
+    h = Handoff({}, on_done=done.append, runner=run, jobs_dir=tmp_path / "jobs", memory=mem)
+    assert h.start("Write a CSV parser", "CSV parser", agent="Codex").startswith("Started Codex job #1")
+    wait(done)
+    job = done[0]
+    assert job.agent == "codex" and job.status == "done"
+    assert job.summary == "Added the parser and three tests."
+    assert run.calls[0][0][1] == "exec"
+    task = (job.folder / "TASK.md").read_text()
+    assert "Workflow mode: coding" in task and "Never commit to main directly" in task
+    assert "RESULT.md" in task                          # non-Claude agents get the finishing rules in TASK.md
+    assert "(Codex)" in h.status()
+
+
+def test_gemini_failure_and_bad_agent(tmp_path):
+    done = []
+    h = Handoff({"handoff": {"default_agent": "gemini"}}, on_done=done.append,
+                runner=FakeCLI("", code=1), jobs_dir=tmp_path)
+    assert h.start("Summarize this").startswith("Started Gemini job")
+    wait(done)
+    assert done[0].status == "failed" and done[0].summary.startswith("Gemini hit a problem: boom")
+    assert h.start("x", agent="grok").startswith("Unknown agent")

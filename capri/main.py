@@ -56,14 +56,18 @@ class Capri:
             self.hands = Hands()
         else:
             self.hands = None
-        self.actions = Actions(self.voice, apps, life=self.life, hands=self.hands)
+        memory = Memory(memory_dir(cfg))
+        self.actions = Actions(self.voice, apps, life=self.life, hands=self.hands, memory=memory)
         self.reflex = Reflex(classify=self._local_classifier(cfg))
-        from .handoff import Handoff, find_claude
-        self.handoff = Handoff(cfg, on_done=self._handoff_done)
-        self.brain = Brain(self.voice, self.gen, Memory(memory_dir(cfg)), apps=apps, hands=self.hands,
+        from .handoff import Handoff, find_agent, find_claude
+        self.handoff = Handoff(cfg, on_done=self._handoff_done, memory=memory)
+        self.brain = Brain(self.voice, self.gen, memory, apps=apps, hands=self.hands,
                            handoff=self.handoff, life=self.life)
         claude = find_claude()
         print(f"  claude handoff: {'ready (' + claude + ')' if claude else 'Claude Code not installed (see README)'}",
+              flush=True)
+        others = [a for a in ("codex", "gemini") if find_agent(a)]
+        print(f"  other agents: {', '.join(others) if others else 'none (npm i -g @openai/codex / @google/gemini-cli)'}",
               flush=True)
         print(f"  brain: {'ready (' + self.brain.models[0] + ')' if self.brain.ready else 'no GEMINI_API_KEY in .env, brain off'}",
               flush=True)
@@ -91,14 +95,16 @@ class Capri:
 
     # --- handoff ---
     def _handoff_done(self, job) -> None:
-        """A Claude job finished: say so out loud (after anything she's saying now)."""
-        self.turnlog.add("capri", f"Claude {'finished' if job.status == 'done' else 'couldn’t finish'} "
+        """An agent job finished: say so out loud (after anything she's saying now)."""
+        from .handoff import AGENTS
+        name = AGENTS.get(getattr(job, "agent", "claude"), "Claude")
+        self.turnlog.add("capri", f"{name} {'finished' if job.status == 'done' else 'couldn’t finish'} "
                                   f"{job.title}. {job.summary}", via="handoff")
-        print(f"\r[claude #{job.id} {job.status} in {job.age()}] {job.summary}\n  -> {job.result_path}", flush=True)
+        print(f"\r[{name.lower()} #{job.id} {job.status} in {job.age()}] {job.summary}\n  -> {job.result_path}", flush=True)
         if job.status == "done":
-            self.voice.say(f"Claude finished {job.title}. {job.summary}")
+            self.voice.say(f"{name} finished {job.title}. {job.summary}")
         else:
-            self.voice.say(f"Claude couldn't finish {job.title}. {job.summary}")
+            self.voice.say(f"{name} couldn't finish {job.title}. {job.summary}")
 
     @staticmethod
     def _local_classifier(cfg: dict):

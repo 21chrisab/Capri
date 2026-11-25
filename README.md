@@ -54,6 +54,8 @@ For big jobs, Capri hands off to **Claude** (Claude Code, running on your Claude
 
 **One-time setup:** install Claude Code in PowerShell with `irm https://claude.ai/install.ps1 | iex`, then run `claude` once and log in with your Claude account. `capri.bat doctor` shows "Claude Code (handoff) OK" when it's ready. Settings are under `[handoff]` in `config.toml`.
 
+**Codex and Gemini too.** Say "have Codex write a CSV parser" or "give this to Gemini" to use your ChatGPT or Google AI plan instead. Same job folders, same spoken summary. Install with `npm i -g @openai/codex` / `npm i -g @google/gemini-cli` and run each once to log in. They're held to the same limits as Claude: Codex runs in its `workspace-write` sandbox (writes only in the job folder, no network), Gemini runs in `auto_edit` mode (shell commands need approval, which a background job can't give, so they're refused). `default_agent` in `[handoff]` picks who gets jobs when you don't say.
+
 ## Life OS: tasks, projects, dashboard
 Your tasks and projects live in a separate **life** folder in Google Drive (`G:\My Drive\life`), shared with
 Claude Code and your dashboard. Capri finds it on her own; if it's somewhere else, set `[life] dir` in `config.toml`.
@@ -75,6 +77,8 @@ itself every 15 minutes. Only your PC can open it. Turn it off or change the por
 memory\
   SOUL.md            her personality. Edit it to change how she talks. She can't change it herself.
   USER.md            core facts about you (always loaded)
+  LESSONS.md         corrections and standing rules ("always X", "don't Y"). Newest 15 always loaded.
+  modes\coding.md    rules for each workflow mode: general, coding, assignments, content_studio
   people\jordan.md   one file per person
   topics\music.md    tastes, routines, your setup...
   projects\...       ongoing stuff
@@ -83,6 +87,9 @@ memory\
 - Tell her things ("my best friend Jordan plays Valorant") and she files them in the right place.
 - She always sees a one-line **index** of every file. She only opens a file when it's relevant, so memory can grow without slowing her down.
 - "Forget that Jordan plays Valorant" removes the line.
+- Correct how she works ("don't read me code out loud") and she saves it to `LESSONS.md`. Handed-off agents get the lessons too.
+- "Switch to coding mode" / "content studio mode" / "assignments mode" / "general mode" changes her rules. Edit the files in `modes\` to change what each mode means, or add your own. The active mode's rules go to handed-off agents as well.
+- `memory\` is in `.gitignore`, so what she knows about you stays off GitHub.
 - You can make your own folders and files. They show up in her index automatically.
 - Every change she makes is logged in `logs\memory_writes.jsonl`.
 

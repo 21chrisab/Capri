@@ -104,6 +104,12 @@ RULES: list[tuple[re.Pattern, callable]] = [
     (re.compile(r"^(?:what time is it|what's the time|whats the time|time|what is the time)$"),
      lambda m: Intent("time")),
 
+    # Workflow modes. Needs "mode"/"workflow" so "switch to spotify" stays an app switch.
+    (re.compile(r"^(?:switch to|go to|enter|set|activate|use|turn on) (?:the )?"
+                r"(general|coding|code|assignments?|homework|content studio|studio)(?: mode| workflow)$"),
+     lambda m: Intent("set_mode", {"code": "coding", "assignment": "assignments", "homework": "assignments",
+                                   "studio": "content_studio"}.get(m.group(1), m.group(1).replace(" ", "_")))),
+
     # Life OS (life/ folder in Google Drive). Before the window rules: "open my dashboard" isn't an app.
     (re.compile(r"^(?:open|show|pull up|bring up) (?:me )?(?:my |the )?(?:life )?dashboard$"),
      lambda m: Intent("life_dashboard")),

@@ -4,6 +4,11 @@ from capri.router import Intent, normalize, parse
 
 CASES = [
     ("Stop.", Intent("stop")),
+    ("switch to coding mode", Intent("set_mode", "coding")),
+    ("Capri, switch to content studio mode.", Intent("set_mode", "content_studio")),
+    ("enter homework mode", Intent("set_mode", "assignments")),
+    ("go to general mode", Intent("set_mode", "general")),
+    ("switch to coding", Intent("app_focus", "coding")),   # no "mode": stays a window switch
     ("never mind", Intent("stop")),
     ("Thanks, Capri!", Intent("thanks")),
     ("What time is it?", Intent("time")),
